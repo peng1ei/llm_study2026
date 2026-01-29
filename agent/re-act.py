@@ -222,6 +222,10 @@ def run_react_agent(
                         tool_name = fn.get("name")
                         arguments = arguments or fn.get("arguments") or "{}"
 
+                if tool_name:
+                    sys.stdout.write(f"\n[tool] calling {tool_name} ...\n")
+                    sys.stdout.flush()
+
                 try:
                     args = json.loads(arguments) if isinstance(arguments, str) else arguments
                 except json.JSONDecodeError:
@@ -237,6 +241,10 @@ def run_react_agent(
                         tool_result = f"ERROR: bad args for tool '{tool_name}': {e}"
                     except Exception as e:
                         tool_result = f"ERROR: tool '{tool_name}' failed: {type(e).__name__}: {e}"
+
+                if tool_name:
+                    sys.stdout.write(f"[tool] {tool_name} done.\n")
+                    sys.stdout.flush()
 
                 # 先把模型的 tool_call 放回对话历史，再追加 tool 输出
                 conversation_items.append(_as_dict(item))
