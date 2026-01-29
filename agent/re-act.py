@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import sys
 from typing import Any, Dict, List
 
 from openai import OpenAI
@@ -96,7 +97,12 @@ Rules:
 - When you are ready, provide a concise final answer to the user.
 """
 
-def run_react_agent(user_query: str, max_steps: int = 10) -> str:
+def run_react_agent(
+    user_query: str,
+    max_steps: int = 10,
+    stream_output: bool = False,
+    return_final_text: bool = True,
+) -> str:
     def _get(item: Any, key: str, default: Any = None) -> Any:
         if isinstance(item, dict):
             return item.get(key, default)
@@ -152,20 +158,51 @@ def run_react_agent(user_query: str, max_steps: int = 10) -> str:
     ]
 
     for step in range(max_steps):
-        resp = client.responses.create(
-            model="gpt-4.1-mini",
-            input=conversation_items,
-            tools=TOOLS,
-            # 可选：让模型更“愿意”调用工具
-            tool_choice="auto",
-        )
+        if stream_output:
+            stream = client.responses.create(
+                model="gpt-4.1-mini",
+                input=conversation_items,
+                tools=TOOLS,
+                tool_choice="auto",
+                stream=True,
+            )
 
-        # Responses API：输出是 items。我们需要处理：
-        # 1) function_call（模型要调用工具）
-        # 2) message/text（模型最终回答或中间解释）
-        # 不同 SDK 版本字段会略有差异，这里按“通用写法”做健壮处理。
+            streamed_any = False
+            final_response = None
+            for event in stream:
+                event_type = _get(event, "type")
+                if event_type == "response.output_text.delta":
+                    delta = _get(event, "delta", "")
+                    if delta:
+                        streamed_any = True
+                        sys.stdout.write(delta)
+                        sys.stdout.flush()
+                elif event_type in ("response.completed", "response.done"):
+                    final_response = _get(event, "response")
 
-        output_items = resp.output  # list of output items
+            if streamed_any:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+
+            if final_response is None:
+                return "Streaming finished without a final response."
+
+            output_items = _get(final_response, "output", [])
+        else:
+            resp = client.responses.create(
+                model="gpt-4.1-mini",
+                input=conversation_items,
+                tools=TOOLS,
+                # 可选：让模型更“愿意”调用工具
+                tool_choice="auto",
+            )
+
+            # Responses API：输出是 items。我们需要处理：
+            # 1) function_call（模型要调用工具）
+            # 2) message/text（模型最终回答或中间解释）
+            # 不同 SDK 版本字段会略有差异，这里按“通用写法”做健壮处理。
+
+            output_items = resp.output  # list of output items
 
         tool_called = False
         final_text_chunks: List[str] = []
@@ -218,7 +255,10 @@ def run_react_agent(user_query: str, max_steps: int = 10) -> str:
 
         # 如果这一步没调用工具，并且产出了文本，我们认为它“收敛了”
         if (not tool_called) and final_text_chunks:
-            return "\n".join([t for t in final_text_chunks if t.strip()]).strip()
+            final_text = "\n".join([t for t in final_text_chunks if t.strip()]).strip()
+            if stream_output and not return_final_text:
+                return ""
+            return final_text
 
         # 如果没调用工具也没输出文本，避免死循环
         if not tool_called and not final_text_chunks:
@@ -228,5 +268,6 @@ def run_react_agent(user_query: str, max_steps: int = 10) -> str:
 
 if __name__ == "__main__":
     q = "用一句话解释什么是ReAct，然后帮我算 (12.5 * (3 + 4)) / 5"
-    print(run_react_agent(q))
-
+    result = run_react_agent(q, stream_output=True, return_final_text=False)
+    if result:
+        print(result)
