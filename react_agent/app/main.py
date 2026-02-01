@@ -1,24 +1,23 @@
-from .agent import ReactAgent, AgentConfig
 from .llm import LLM
-from .memory import Memory
 from .trace import Tracer
+from .agent_fsm import AgentFSM, AgentConfig
 
 def main():
     tracer = Tracer()
-    agent = ReactAgent(
+    agent = AgentFSM(
         llm=LLM(model="gpt-4.1-mini"),
-        memory=Memory(),
         tracer=tracer,
-        config=AgentConfig(max_steps=8),
+        config=AgentConfig(max_tool_steps=8, enable_planner=True),
     )
 
-    q = "先用一句话解释 ReAct，然后算 (12.5*(3+4))/5，并解释你为何需要工具。"
+    q = "解释 ReAct 是什么，然后帮我算 (12.5*(3+4))/5，并给出结果。"
     ans = agent.run(q)
+
     print("\n===== ANSWER =====\n")
     print(ans)
 
-    print("\n===== TRACE (last 20) =====\n")
-    tracer.print_tail(20)
+    print("\n===== TRACE (tail 25) =====\n")
+    tracer.print_tail(25)
 
 if __name__ == "__main__":
     main()
